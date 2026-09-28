@@ -1,0 +1,182 @@
+# XcodeGen project definition (SPEC §2, §6).
+#
+# Morph.xcodeproj is generated, never committed. Run `xcodegen generate` (or
+# `make generate`) after changing this file, adding a source file, or cloning
+# the repo.
+name: Morph
+
+options:
+  bundleIdPrefix: com.jopersaud
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+  groupSortPosition: top
+  minimumXcodeGenVersion: "2.42"
+  # Local packages are resolved from disk, so a build never needs the network.
+  localPackagesGroup: Packages
+
+configs:
+  Debug: debug
+  Release: release
+
+# Signing and versioning live in an xcconfig so `Local.xcconfig` can override
+# them without touching the repo (SPEC §13).
+configFiles:
+  Debug: Config/Shared.xcconfig
+  Release: Config/Shared.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    # Swift 6 language mode: complete concurrency checking everywhere (SPEC §2).
+    SWIFT_STRICT_CONCURRENCY: complete
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ALWAYS_SEARCH_USER_PATHS: NO
+    CLANG_ENABLE_MODULES: YES
+    DEAD_CODE_STRIPPING: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # No distribution in v1, so no notarization requirements to satisfy
+    # (SPEC §1). Hardened Runtime is on anyway.
+    ENABLE_HARDENED_RUNTIME: YES
+
+packages:
+  ConversionKit:
+    path: Packages/ConversionKit
+  ImageEngine:
+    path: Packages/Engines/ImageEngine
+  MediaEngine:
+    path: Packages/Engines/MediaEngine
+  DocumentEngine:
+    path: Packages/Engines/DocumentEngine
+  ArchiveEngine:
+    path: Packages/Engines/ArchiveEngine
+  MorphIntents:
+    path: Packages/MorphIntents
+
+targets:
+
+  # The app: not sandboxed, so it can write beside arbitrary sources (SPEC §7).
+  Morph:
+    type: application
+    platform: macOS
+    sources:
+      - path: Apps/MorphApp
+        excludes:
+          - Info.plist
+          - "*.entitlements"
+    settings:
+      base:
+        PRODUCT_NAME: Morph
+        PRODUCT_BUNDLE_IDENTIFIER: $(MORPH_BUNDLE_ID_PREFIX).Morph
+        INFOPLIST_FILE: Apps/MorphApp/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Apps/MorphApp/Morph.entitlements
+        ENABLE_APP_SANDBOX: NO
+        LD_RUNPATH_SEARCH_PATHS:
+          - $(inherited)
+          - "@executable_path/../Frameworks"
+    dependencies:
+      - package: ConversionKit
+      - package: ImageEngine
+      - package: MediaEngine
+      - package: DocumentEngine
+      - package: ArchiveEngine
+      - package: MorphIntents
+      - target: MorphFinderSync
+        embed: true
+        codeSign: true
+
+  # The Finder Sync extension: sandboxed, and linked against ConversionKit
+  # only. Adding an engine package here is a spec violation (SPEC §6, §14) and
+  # `make lint` fails on it.
+  MorphFinderSync:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Apps/MorphFinderSync
+        excludes:
+          - Info.plist
+          - "*.entitlements"
+    settings:
+      base:
+        PRODUCT_NAME: MorphFinderSync
+        PRODUCT_BUNDLE_IDENTIFIER: $(MORPH_BUNDLE_ID_PREFIX).Morph.FinderSync
+        INFOPLIST_FILE: Apps/MorphFinderSync/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Apps/MorphFinderSync/MorphFinderSync.entitlements
+        ENABLE_APP_SANDBOX: YES
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS:
+          - $(inherited)
+          - "@executable_path/../../../../Frameworks"
+    dependencies:
+      - package: ConversionKit
+
+  # `morph`, installed into ~/.local/bin by `make install` from M6 onward.
+  morph-cli:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Apps/morph-cli
+    settings:
+      base:
+        PRODUCT_NAME: morph
+        PRODUCT_BUNDLE_IDENTIFIER: $(MORPH_BUNDLE_ID_PREFIX).Morph.cli
+        SKIP_INSTALL: YES
+    dependencies:
+      - package: ConversionKit
+
+  # App-level tests. Per-converter tests live in the packages and run under
+  # `swift test`; see CLAUDE.md.
+  MorphTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/MorphTests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: $(MORPH_BUNDLE_ID_PREFIX).MorphTests
+    dependencies:
+      - target: Morph
+      - package: ConversionKit
+
+  MorphUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: Tests/MorphUITests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: $(MORPH_BUNDLE_ID_PREFIX).MorphUITests
+        TEST_TARGET_NAME: Morph
+    dependencies:
+      - target: Morph
+
+schemes:
+  Morph:
+    build:
+      targets:
+        Morph: all
+        MorphFinderSync: all
+        morph-cli: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - MorphTests
+        - MorphUITests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
+  morph-cli:
+    build:
+      targets:
+        morph-cli: all
+    run:
+      config: Debug

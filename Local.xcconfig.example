@@ -1,0 +1,16 @@
+// Copy to Local.xcconfig (git-ignored) to sign with your own Apple ID.
+//
+// A free Apple ID is enough: add it in Xcode → Settings → Accounts, then find
+// the team id under Manage Certificates, or run:
+//
+//   security find-identity -v -p codesigning
+//
+// Signing with a Personal Team is what makes the Finder Sync extension load
+// reliably (SPEC §13). Leave this file absent for ad-hoc signing.
+
+DEVELOPMENT_TEAM = ABCDE12345
+CODE_SIGN_IDENTITY = Apple Development
+CODE_SIGN_STYLE = Automatic
+
+// Bundle ids must be unique to you if you ever sign with a real team.
+// MORPH_BUNDLE_ID_PREFIX = com.example

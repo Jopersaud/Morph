@@ -1,0 +1,75 @@
+# CI for Morph (SPEC §11).
+#
+# Generates the project, runs the local-only guard and the linters, then builds
+# and tests. No signing or release steps: v1 is built from source by its owner.
+#
+# M5 adds a cached job that builds the vendor libraries (FFmpeg, libwebp,
+# libavif, resvg, libarchive) before this one.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show the toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        run: xcodegen generate
+
+      - name: Check the generated project is git-ignored
+        run: |
+          # xcodegen must not leave anything the repo would track: project.yml
+          # is the source of truth, Morph.xcodeproj is disposable.
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "error: generating the project dirtied the working tree:"
+            git status --porcelain
+            exit 1
+          fi
+
+      # SPEC §7: no network code paths, no analytics, no network entitlements.
+      - name: Network guard
+        run: ./Scripts/network-guard.sh
+
+      - name: Lint
+        run: ./Scripts/lint.sh
+
+      # The converter logic and its unit tests live in the packages.
+      - name: Package tests
+        run: ./Scripts/test-packages.sh test
+
+      # The app, the Finder extension, and the UI smoke test. Signed ad-hoc,
+      # because an unsigned bundle will not launch on Apple silicon.
+      - name: Build and test the app
+        run: |
+          xcodebuild \
+            -project Morph.xcodeproj \
+            -scheme Morph \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            test

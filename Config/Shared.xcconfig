@@ -1,0 +1,21 @@
+// Shared build settings for every configuration.
+//
+// Signing defaults to ad-hoc so Morph builds with no Apple Developer account
+// at all (SPEC §2, §13). To sign with a free Apple ID "Personal Team", copy
+// Local.xcconfig.example to Local.xcconfig and fill in your team id. That file
+// is git-ignored.
+
+MORPH_BUNDLE_ID_PREFIX = com.jopersaud
+
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
+
+// Ad-hoc signature. The app, the CLI and the tests all run this way; the
+// Finder extension may refuse to load without a real team (see README).
+CODE_SIGN_IDENTITY = -
+CODE_SIGN_STYLE = Manual
+DEVELOPMENT_TEAM =
+
+// Optional local overrides. `#include?` is the forgiving form: a missing file
+// is not an error, so a fresh clone builds as-is.
+#include? "../Local.xcconfig"
