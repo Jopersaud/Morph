@@ -118,7 +118,7 @@ Vendor/                 build scripts for the bundled libraries
 See [CONTRIBUTING.md](CONTRIBUTING.md). The short version: no network code, no GPL code, prefer
 Apple frameworks, and every converter needs a fixture test.
 
-## Licence
+## License
 
 Morph is [MIT licensed](LICENSE).
 
