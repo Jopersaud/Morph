@@ -2,16 +2,14 @@ import SwiftUI
 
 /// Morph's app target.
 ///
-/// One window — the drop zone and the Jobs list — and a Settings scene. The
-/// menu bar extra and Picker panel arrive in M2, real Settings in M6.
+/// The main window and the Picker panel are AppKit windows owned by
+/// `AppDelegate`, so a background launch for a Finder handoff opens nothing.
+/// SwiftUI provides the Settings scene and the standard menus.
 @main
 struct MorphApp: App {
-    var body: some Scene {
-        Window("Morph", id: "main") {
-            ContentView()
-        }
-        .windowResizability(.contentSize)
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
+    var body: some Scene {
         Settings {
             SettingsView()
         }

@@ -4,7 +4,8 @@ import SwiftUI
 
 /// The main window (SPEC §9): a drop zone on top, the Jobs list underneath.
 struct ContentView: View {
-    @State private var model = JobsModel()
+    let model: JobsModel
+    @AppStorage(OnboardingView.completedKey) private var onboardingCompleted = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,33 +18,9 @@ struct ContentView: View {
             JobsListView(model: model)
         }
         .frame(width: 520, height: 420)
-        .confirmationDialog(
-            "This folder is read-only",
-            isPresented: Binding(
-                get: { model.readOnlyPrompt != nil },
-                set: { if !$0 { model.readOnlyPrompt = nil } }),
-            presenting: model.readOnlyPrompt
-        ) { prompt in
-            Button("Save to…") { model.resolve(prompt, saveTo: chooseFolder()) }
-            Button("Skip", role: .cancel) { model.resolve(prompt, saveTo: nil) }
-        } message: { prompt in
-            Text(
-                "Morph can't save beside "
-                    + (prompt.files.count == 1
-                        ? prompt.files[0].url.lastPathComponent
-                        : "\(prompt.files.count) of these files")
-                    + ". Choose another folder for the converted files, or skip them.")
+        .sheet(isPresented: Binding(get: { !onboardingCompleted }, set: { _ in })) {
+            OnboardingView { onboardingCompleted = true }
         }
-    }
-
-    private func chooseFolder() -> URL? {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Save Here"
-        return panel.runModal() == .OK ? panel.url : nil
     }
 }
 
@@ -61,16 +38,16 @@ struct DropZoneView: View {
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(
                     isTargeted ? Color.accentColor : Color.secondary.opacity(0.35),
-                    style: StrokeStyle(lineWidth: 1.5, dash: model.sources.isEmpty ? [6] : []))
+                    style: StrokeStyle(lineWidth: 1.5, dash: model.dropped.isEmpty ? [6] : []))
 
-            if model.sources.isEmpty {
+            if model.dropped.isEmpty {
                 emptyState
             } else {
                 selection
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            model.add(urls.filter(\.isFileURL))
+            model.dropped.add(urls.filter(\.isFileURL))
             return true
         } isTargeted: {
             isTargeted = $0
@@ -80,7 +57,7 @@ struct DropZoneView: View {
             allowsMultipleSelection: true
         ) { result in
             if case .success(let urls) = result {
-                model.add(urls)
+                model.dropped.add(urls)
             }
         }
     }
@@ -107,22 +84,22 @@ struct DropZoneView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(model.summary)
+                    Text(model.dropped.summary)
                         .font(.headline)
                         .accessibilityIdentifier("source-summary")
-                    if !model.skippedSources.isEmpty {
-                        Text(skippedNote)
+                    if let note = model.dropped.skippedNote {
+                        Text(note)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
                 Spacer()
                 Button("Add…") { isImporting = true }
-                Button("Clear") { model.clearSources() }
+                Button("Clear") { model.dropped = FileSelection(registry: model.registry) }
                     .keyboardShortcut(.escape, modifiers: [])
             }
 
-            if model.offeredTargets.isEmpty {
+            if model.dropped.offeredTargets.isEmpty {
                 Text("Morph can't convert these files yet.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -136,14 +113,6 @@ struct DropZoneView: View {
         }
         .padding(16)
     }
-
-    private var skippedNote: String {
-        let skipped = model.skippedSources
-        let what =
-            skipped.count == 1
-            ? skipped[0].url.lastPathComponent : "\(skipped.count) files"
-        return "Skipping \(what): not a format Morph converts."
-    }
 }
 
 /// One button per target format. A target that doesn't suit every dropped
@@ -153,10 +122,10 @@ struct TargetChips: View {
 
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: 8)], spacing: 8) {
-            ForEach(model.offeredTargets) { target in
-                let enabled = model.isAvailableForAll(target)
+            ForEach(model.dropped.offeredTargets) { target in
+                let enabled = model.dropped.isAvailableForAll(target)
                 Button {
-                    model.convert(to: target)
+                    model.convertDropped(to: target)
                 } label: {
                     Text(target.displayName)
                         .frame(maxWidth: .infinity)
@@ -171,7 +140,7 @@ struct TargetChips: View {
     }
 
     private func reason(_ target: FileFormat) -> String {
-        let blockers = model.blockers(for: target)
+        let blockers = model.dropped.blockers(for: target)
         let names = blockers.prefix(3).map(\.url.lastPathComponent).joined(separator: ", ")
         let more = blockers.count > 3 ? " and \(blockers.count - 3) more" : ""
         return "Can't convert \(names)\(more) to \(target.displayName)."
@@ -292,5 +261,5 @@ struct JobRowView: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(model: JobsModel())
 }

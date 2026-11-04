@@ -3,22 +3,14 @@ import ConversionKit
 import Foundation
 import Observation
 
-/// The main window's state: what's been dropped, and every job since launch.
+/// Every conversion since launch, from every entry point.
 ///
-/// The model owns the app's one `JobQueue` and mirrors its event stream into
-/// rows the Jobs list can draw.
+/// The model owns the app's one `JobQueue`, mirrors its event stream into
+/// rows the Jobs list can draw, and reports each batch when it finishes so the
+/// app can post a notification.
 @MainActor
 @Observable
 final class JobsModel {
-
-    /// A file waiting in the drop zone for a target to be picked.
-    struct SourceFile: Identifiable, Hashable {
-        let url: URL
-        /// `nil` when Morph doesn't recognise the file.
-        let format: FileFormat?
-        let size: Int64
-        var id: URL { url }
-    }
 
     struct JobRow: Identifiable {
         enum State {
@@ -46,22 +38,36 @@ final class JobsModel {
     /// *Skip* (SPEC §4).
     struct ReadOnlyPrompt: Identifiable {
         let id = UUID()
-        let files: [SourceFile]
+        let files: [URL]
         let target: FileFormat
     }
 
-    private(set) var sources: [SourceFile] = []
+    /// The drop zone's files, waiting for a target to be picked.
+    var dropped: FileSelection
     private(set) var rows: [JobRow] = []
-    var readOnlyPrompt: ReadOnlyPrompt?
+
+    /// Called when some files can't be saved beside their sources.
+    @ObservationIgnored var onReadOnly: ((ReadOnlyPrompt) -> Void)?
+    /// Called when every job in a batch has finished, failed or been cancelled.
+    @ObservationIgnored var onBatchFinished: ((BatchReport) -> Void)?
 
     let registry: ConverterRegistry
     private let queue: JobQueue
     private let planner = OutputPlanner()
-    private var pendingRequests: [UUID: ConversionRequest] = [:]
+
+    private struct Batch {
+        var remaining: Set<UUID>
+        var report = BatchReport()
+    }
+
+    @ObservationIgnored private var pendingRequests: [UUID: ConversionRequest] = [:]
+    @ObservationIgnored private var batches: [UUID: Batch] = [:]
+    @ObservationIgnored private var batchForJob: [UUID: UUID] = [:]
 
     init(registry: ConverterRegistry = MorphEngines.makeRegistry()) {
         self.registry = registry
         self.queue = JobQueue(registry: registry)
+        self.dropped = FileSelection(registry: registry)
         let events = queue.events()
         Task { [weak self] in
             for await event in events {
@@ -73,130 +79,43 @@ final class JobsModel {
         #endif
     }
 
-    // MARK: Sources
-
-    /// Adds dropped or chosen files. A folder contributes the files directly
-    /// inside it; duplicates and hidden files are ignored.
-    func add(_ urls: [URL]) {
-        var known = Set(sources.map(\.url))
-        for url in urls.flatMap(Self.expand) where known.insert(url).inserted {
-            let format = try? FormatDetector.detect(url)
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-            sources.append(SourceFile(url: url, format: format, size: Int64(size)))
-        }
-    }
-
-    func clearSources() {
-        sources = []
-    }
-
-    private static func expand(_ url: URL) -> [URL] {
-        let url = url.standardizedFileURL
-        let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory
-        guard isDirectory == true else { return [url] }
-        let contents =
-            (try? FileManager.default.contentsOfDirectory(
-                at: url, includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles])) ?? []
-        return
-            contents
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory != true }
-            .map(\.standardizedFileURL)
-            .sorted {
-                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
-                    == .orderedAscending
-            }
-    }
-
-    /// Dropped files Morph recognises.
-    var convertibleSources: [SourceFile] { sources.filter { $0.format != nil } }
-
-    /// Dropped files Morph can't do anything with; they're left out of the
-    /// chips rather than disabling every one of them.
-    var skippedSources: [SourceFile] { sources.filter { $0.format == nil } }
-
-    /// Every target at least one dropped file can become.
-    var offeredTargets: [FileFormat] {
-        let formats = Set(convertibleSources.compactMap(\.format))
-        let union = formats.reduce(into: Set<FileFormat>()) {
-            $0.formUnion(registry.targets(for: $1))
-        }
-        return FormatCatalog.all.filter(union.contains)
-    }
-
-    /// Whether every dropped file can become `target`.
-    func isAvailableForAll(_ target: FileFormat) -> Bool {
-        blockers(for: target).isEmpty
-    }
-
-    /// The dropped files that can't become `target`, for the chip's tooltip.
-    func blockers(for target: FileFormat) -> [SourceFile] {
-        convertibleSources.filter { file in
-            guard let format = file.format else { return true }
-            return !registry.canConvert(from: format, to: target)
-        }
-    }
-
-    /// "3 images · 12.4 MB"
-    var summary: String {
-        let files = convertibleSources
-        let categories = Set(files.compactMap { $0.format?.category })
-        let noun: String
-        if categories.count == 1, let category = categories.first {
-            noun = Self.noun(for: category, count: files.count)
-        } else {
-            noun = files.count == 1 ? "file" : "files"
-        }
-        let bytes = files.reduce(Int64(0)) { $0 + $1.size }
-        let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-        return "\(files.count) \(noun) · \(size)"
-    }
-
-    private static func noun(for category: FileFormat.Category, count: Int) -> String {
-        let singular =
-            switch category {
-            case .image: "image"
-            case .audio: "audio file"
-            case .video: "video"
-            case .document: "document"
-            case .archive: "archive"
-            }
-        return count == 1 ? singular : singular + "s"
-    }
-
     // MARK: Converting
 
-    /// Converts every dropped file to `target`, then clears the drop zone for
-    /// the next batch.
-    func convert(to target: FileFormat) {
-        let files = convertibleSources
-        let blocked = files.filter { !planner.isWritable($0.url.deletingLastPathComponent()) }
-        let writable = files.filter { !blocked.contains($0) }
+    /// Converts the drop zone's files to `target`, then clears the drop zone
+    /// for the next batch.
+    func convertDropped(to target: FileFormat) {
+        submit(dropped.convertible.map(\.url), to: target)
+        dropped = FileSelection(registry: registry)
+    }
 
-        enqueue(writable.map { ConversionRequest(source: $0.url, target: target) })
+    /// Converts `files` to `target` as one batch. Files in folders Morph can't
+    /// write to are held back and offered *Save to…* or *Skip*.
+    func submit(_ files: [URL], to target: FileFormat) {
+        let blocked = files.filter { !planner.isWritable($0.deletingLastPathComponent()) }
+        let writable = files.filter { !blocked.contains($0) }
+        enqueue(writable.map { ConversionRequest(source: $0, target: target) })
         if !blocked.isEmpty {
-            readOnlyPrompt = ReadOnlyPrompt(files: blocked, target: target)
+            onReadOnly?(ReadOnlyPrompt(files: blocked, target: target))
         }
-        clearSources()
     }
 
     /// Answers the read-only prompt: convert into `folder`, or skip when
     /// `folder` is `nil`. The choice holds for every file in the prompt.
     func resolve(_ prompt: ReadOnlyPrompt, saveTo folder: URL?) {
-        if readOnlyPrompt?.id == prompt.id {
-            readOnlyPrompt = nil
-        }
         guard let folder else { return }
         enqueue(
             prompt.files.map {
-                ConversionRequest(source: $0.url, target: prompt.target, outputFolder: folder)
+                ConversionRequest(source: $0, target: prompt.target, outputFolder: folder)
             })
     }
 
     private func enqueue(_ requests: [ConversionRequest]) {
         guard !requests.isEmpty else { return }
+        let batch = UUID()
+        batches[batch] = Batch(remaining: Set(requests.map(\.id)))
         for request in requests {
             pendingRequests[request.id] = request
+            batchForJob[request.id] = batch
         }
         Task { await queue.enqueue(requests) }
     }
@@ -226,26 +145,14 @@ final class JobsModel {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    var hasActiveJobs: Bool { rows.contains { $0.state.isActive } }
+    /// Whether any batch is still waiting on a job.
+    var hasActiveJobs: Bool { !batches.isEmpty }
     var hasFinishedJobs: Bool { rows.contains { !$0.state.isActive } }
 
     /// "12 of 50 done", across the jobs still in the list.
     var progressSummary: String {
         let done = rows.filter { !$0.state.isActive }.count
         return "\(done) of \(rows.count) done"
-    }
-
-    /// Overall progress of the jobs in the list, 0...1.
-    var overallProgress: Double {
-        guard !rows.isEmpty else { return 0 }
-        let total = rows.reduce(0.0) { sum, row in
-            switch row.state {
-            case .queued: sum
-            case .running(let fraction): sum + fraction
-            case .finished, .failed, .cancelled: sum + 1
-            }
-        }
-        return total / Double(rows.count)
     }
 
     // MARK: Events
@@ -256,14 +163,32 @@ final class JobsModel {
             rows.append(JobRow(id: id, request: request, state: .queued))
             return
         }
-        guard let index = rows.firstIndex(where: { $0.id == event.jobID }) else { return }
-        switch event {
-        case .queued: break
-        case .started: rows[index].state = .running(0)
-        case .progress(_, let fraction): rows[index].state = .running(fraction)
-        case .finished(_, let output): rows[index].state = .finished(output)
-        case .failed(_, let error): rows[index].state = .failed(error)
-        case .cancelled: rows[index].state = .cancelled
+        if let index = rows.firstIndex(where: { $0.id == event.jobID }) {
+            switch event {
+            case .queued: break
+            case .started: rows[index].state = .running(0)
+            case .progress(_, let fraction): rows[index].state = .running(fraction)
+            case .finished(_, let output): rows[index].state = .finished(output)
+            case .failed(_, let error): rows[index].state = .failed(error)
+            case .cancelled: rows[index].state = .cancelled
+            }
+        }
+        if event.isTerminal {
+            finishJob(event)
+        }
+    }
+
+    private func finishJob(_ event: JobEvent) {
+        guard let batchID = batchForJob.removeValue(forKey: event.jobID),
+            var batch = batches[batchID]
+        else { return }
+        batch.report.record(event)
+        batch.remaining.remove(event.jobID)
+        if batch.remaining.isEmpty {
+            batches[batchID] = nil
+            onBatchFinished?(batch.report)
+        } else {
+            batches[batchID] = batch
         }
     }
 
@@ -274,7 +199,7 @@ final class JobsModel {
             guard let paths = ProcessInfo.processInfo.environment["MORPH_UI_TEST_FILES"] else {
                 return
             }
-            add(paths.split(separator: "\n").map { URL(fileURLWithPath: String($0)) })
+            dropped.add(paths.split(separator: "\n").map { URL(fileURLWithPath: String($0)) })
         }
     #endif
 }

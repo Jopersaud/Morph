@@ -148,3 +148,66 @@ single dialog offers *Save to…* (one folder for all the blocked files) or *Ski
 - Copying file dates and *Move original to Trash* are Settings options too (M6).
 - Removing temp files left by a crash at launch (SPEC §7): `OutputPlanner.removeStaleTemporaries`
   exists, but the app doesn't yet record which folders to sweep.
+
+## M2 — Finder integration (2026-11-04)
+
+### The app publishes a route table into the extension's container
+
+The extension links no engines, so it can't know which routes exist. On every launch, the app
+writes `routes.json` (source id → target ids, from its live registry) into
+`~/Library/Containers/<extension id>/Data/Library/Application Support/Morph/`, the one place
+the sandboxed extension can read. If the extension starts and finds no table (fresh install,
+container just created), it sends `morph://refresh-routes`, which launches the app in the
+background to write one. Until then its menu shows *Set Up Morph…*.
+
+Alternatives considered: an App Group (ruled out by SPEC §6), a table baked in at build time
+(would duplicate each engine's runtime probe), and writing into the extension's bundle (breaks
+its signature).
+
+### Morph is an agent app that becomes a regular one while its window is open
+
+`LSUIElement` is set, so a `morph://convert` from Finder launches Morph without a Dock icon,
+without a window and without taking focus from Finder. Opening the main window switches to a
+regular app; closing it switches back. With no window, no panel and no running jobs, Morph quits
+after five seconds. Until the menu bar extra arrives in M6, an agent with no window would be
+invisible, so it shouldn't linger.
+
+The main window is an AppKit `NSWindow` hosting SwiftUI, not a SwiftUI `Window` scene, because on
+macOS 14 a scene can't be told not to open at launch.
+
+### Windows the user asked for are brought forward with `activate(ignoringOtherApps:)`
+
+macOS 14's cooperative `activate()` is ignored when an agent app launches, so the main window
+opened behind Finder and the Picker panel got no keyboard focus. `NSApp.bringToFront()` uses the
+older forcing call, and is only used for a window the user just asked for: launching Morph,
+*More Options…*, the Services menu, the read-only prompt. A background conversion never takes
+focus.
+
+### The Picker panel hides when Morph is in the background
+
+Dismissing it as soon as it lost focus (like a menu) closed it during activation. Instead it uses
+`hidesOnDeactivate`: it steps aside while you're in another app and comes back when you return.
+Esc, the close button, or converting dismisses it.
+
+### `More Options…` opens the Picker panel for now
+
+SPEC §3 has `More Options…` open the options panel. Per-target options arrive with Settings in M6;
+until then, `More Options…` opens the Picker panel, which offers every target.
+
+### A list file only if the selection doesn't fit in a URL
+
+Selections whose `morph://` URL would pass 8,000 characters spill their paths into a
+`*.morph-handoff` file in the extension's temp folder. The app reads the file and deletes it, and
+only accepts files with that suffix, so a crafted `morph://` link can't make Morph read or delete
+anything else.
+
+Any app or web page can open a `morph://` URL. The worst one can do is convert files the user
+already has into new files beside them, never overwriting anything, so the URL isn't
+authenticated. If that changes, the sender's process can be checked from the Apple event.
+
+### UI tests pass handoffs in an environment variable
+
+XCUITest launches the app outside LaunchServices, so `XCUIApplication.open(_:)` with a `morph://`
+URL started a second copy of Morph, and that copy did the work. Debug builds instead read the URL
+from `MORPH_UI_TEST_HANDOFF` at launch. That tests the parsing, the Picker and the queue. Delivery
+through LaunchServices was checked by hand against the installed app.

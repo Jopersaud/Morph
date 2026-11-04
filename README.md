@@ -9,17 +9,27 @@ so you never leave Finder.
 
 Free, open source (MIT), and inspired by [Tangerine](https://tangerineformac.com).
 
-## Status: M0, scaffold only
+## Status: M2, images and Finder integration
 
-**Morph does not convert anything yet.** This milestone builds the skeleton — the project, the
-packages, the tests, the CI, and the local-only guard — so the conversion work has somewhere to go.
+Morph converts images — JPEG, PNG, HEIC, TIFF and BMP, in every direction — from Finder's
+right-click menu, the Services menu, or by dropping files on its window. Documents, audio and
+video come next.
+
+Three ways in:
+
+- **Finder:** right-click → **Convert to ▸ PNG**. The file appears beside the original; Morph
+  works in the background and never opens a window.
+- **Services:** right-click → **Quick Actions** (or **Services**) → **Convert with Morph…** opens a
+  small picker. Type to filter (`pn` → PNG), ⏎ to convert, Esc to close. This works even when the
+  Finder extension is off.
+- **The window:** open Morph and drop files on it, or click **Choose Files…**.
 
 | Milestone | What it adds | State |
 |---|---|---|
 | M0 | Project, packages, CI, lint, network guard, docs | ✅ done |
-| M1 | ConversionKit core, ImageIO engine, drop zone, Jobs list | next |
-| M2 | Finder `Convert to ▸` submenu, Services, Picker panel | |
-| M3 | Documents: PDF, DOCX, RTF, subtitles, CSV/JSON | |
+| M1 | ConversionKit core, ImageIO engine, drop zone, Jobs list | ✅ done |
+| M2 | Finder `Convert to ▸` submenu, Services, Picker panel | ✅ done |
+| M3 | Documents: PDF, DOCX, RTF, subtitles, CSV/JSON | next |
 | M4 | Audio and video through AVFoundation | |
 | M5 | Bundled libraries: FFmpeg, libwebp, libavif, resvg, libarchive | |
 | M6 | Settings, menu bar extra, Shortcuts, CLI, polish | |

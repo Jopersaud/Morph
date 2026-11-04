@@ -22,6 +22,8 @@ BIN_DIR ?= $(HOME)/.local/bin
 DEV_TEAM := $(shell test -f Local.xcconfig && \
 	sed -n 's/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*//p' Local.xcconfig | tail -1)
 
+LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+
 XCODEBUILD_FLAGS := -project $(PROJECT) -scheme $(SCHEME) -derivedDataPath $(DERIVED_DATA)
 
 .DEFAULT_GOAL := help
@@ -106,6 +108,9 @@ endif
 	@rm -rf "$(APP_DIR)/Morph.app"
 	@mkdir -p "$(APP_DIR)"
 	@cp -R "$(APP)" "$(APP_DIR)/Morph.app"
+	@echo "▸ Registering morph:// and the Services menu"
+	@$(LSREGISTER) -f "$(APP_DIR)/Morph.app"
+	@/System/Library/CoreServices/pbs -update || true
 	@extension_id=$$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
 		"$(APP_DIR)/Morph.app/Contents/PlugIns/MorphFinderSync.appex/Contents/Info.plist"); \
 	echo "▸ Registering the Finder extension ($$extension_id)"; \
@@ -114,7 +119,7 @@ endif
 		echo "  warning: pluginkit could not enable the extension; enable it by hand below"
 	@echo
 	@echo "Installed. Next steps:"
-	@echo "  1. Open $(APP_DIR)/Morph.app once."
+	@echo "  1. Open $(APP_DIR)/Morph.app once and follow its two setup screens."
 	@echo "  2. If 'Convert to' is missing from Finder's context menu, turn it on in"
 	@echo "     System Settings → General → Login Items & Extensions → Finder."
 
@@ -141,6 +146,7 @@ uninstall:
 			pluginkit -e ignore -i "$$extension_id" 2>/dev/null || true; \
 		fi; \
 		echo "▸ Removing $(APP_DIR)/Morph.app"; \
+		$(LSREGISTER) -u "$(APP_DIR)/Morph.app" 2>/dev/null || true; \
 		rm -rf "$(APP_DIR)/Morph.app"; \
 	else \
 		echo "Morph is not installed in $(APP_DIR)"; \
