@@ -56,15 +56,16 @@ end, run the full suite and report what passed. Commit at every milestone.
 | | Scope | Done when |
 |---|---|---|
 | M0 ✅ | Scaffold: project, packages, CI, lint, network guard, docs | `xcodegen && xcodebuild test` passes |
-| M1 | ConversionKit core, ImageIO engine, OutputPlanner, JobQueue, drop zone, Jobs list | 50 HEICs in → 50 JPGs beside them |
+| M1 ✅ | ConversionKit core, ImageIO engine, OutputPlanner, JobQueue, drop zone, Jobs list | 50 HEICs in → 50 JPGs beside them |
 | M2 | Finder Sync + `morph://` handoff, Services, Picker panel, notifications, onboarding | right-click → Convert to ▸ PNG works |
 | M3 | NSAttributedString + PDFKit routes, subtitles, CSV/JSON | every document route has a fixture test |
 | M4 | AVFoundation audio/video routes and presets | MOV→MP4, WAV→M4A, video→M4A |
 | M5 | FFmpeg (LGPL), libwebp, libavif, resvg, libarchive; GIF; archives | the full §5 matrix is green |
 | M6 | Settings, menu bar extra, App Intents, CLI, accessibility, performance | `make install` on a clean clone gives a working app |
 
-Still unbuilt from the core: `OutputPlanner` (naming, collisions, temp paths, writable checks) and
-`JobQueue` (the actor, cancellation, progress) — both land in M1.
+The core pipeline is `JobQueue` → `FormatDetector` → `ConverterRegistry` → `OutputPlanner`:
+converters write to `job.destination`, a hidden temp file, and the queue commits it into place.
+Image fixtures are regenerated with `swift Tests/Fixtures/make-images.swift`.
 
 ## Hard rules
 

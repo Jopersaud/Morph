@@ -148,6 +148,9 @@ targets:
     platform: macOS
     sources:
       - path: Tests/MorphUITests
+      # The smoke test converts a real fixture.
+      - path: Tests/Fixtures/images/heic-64x48.heic
+        buildPhase: resources
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

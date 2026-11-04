@@ -19,6 +19,12 @@ public enum ConversionOptions: Hashable, Sendable {
         }
     }
 
+    /// The image options, or the image defaults when these options belong to
+    /// another category.
+    public var imageOptions: ImageOptions {
+        if case .image(let options) = self { options } else { ImageOptions() }
+    }
+
     public var category: FileFormat.Category {
         switch self {
         case .image: .image

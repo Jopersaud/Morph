@@ -69,7 +69,7 @@ extension ConversionRoute: CustomStringConvertible {
 /// A group of converters shipped as one package (`ImageEngine`, `MediaEngine`,
 /// …). Engines exist so the app can register everything at once and the Finder
 /// extension can register nothing at all.
-public protocol EngineModule {
+public protocol EngineModule: Sendable {
     static var id: String { get }
     static var converters: [any Converter.Type] { get }
 }

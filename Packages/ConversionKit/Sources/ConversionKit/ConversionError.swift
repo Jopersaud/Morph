@@ -10,6 +10,8 @@ public enum ConversionError: Error, Hashable, Sendable {
     /// The source can't be read: missing, damaged, or not downloaded from
     /// iCloud Drive.
     case unreadable(URL, reason: String)
+    /// The file is readable, but it isn't a format Morph knows.
+    case unknownFormat(URL)
     /// The route exists but this Mac has no encoder for it.
     case encoderUnavailable(FileFormat)
     /// The destination volume ran out of room.
@@ -28,6 +30,8 @@ extension ConversionError: LocalizedError {
             "Morph can't convert \(route.source.displayName) to \(route.target.displayName)."
         case .unreadable(let url, let reason):
             "Couldn't read \(url.lastPathComponent): \(reason)"
+        case .unknownFormat(let url):
+            "Morph doesn't recognize the format of \(url.lastPathComponent)."
         case .encoderUnavailable(let format):
             "This Mac has no \(format.displayName) encoder available."
         case .diskFull(let url):
@@ -53,7 +57,7 @@ extension ConversionError: LocalizedError {
             "Free up some space and try again."
         case .destinationNotWritable:
             "Choose another folder to save into."
-        case .cancelled, .engine:
+        case .unknownFormat, .cancelled, .engine:
             nil
         }
     }

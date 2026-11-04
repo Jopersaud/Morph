@@ -88,3 +88,63 @@ M6 adds swift-argument-parser along with `morph convert`.
 XcodeGen can synthesise Info.plists from `project.yml`. Explicit files are committed instead, so
 the `NSExtension` wiring for the Finder extension and the app's bundle keys are readable in a diff
 rather than implied by YAML.
+
+## M1 — Images and the main window (2026-11-04)
+
+### Collisions are settled at commit time, with an exclusive rename
+
+`OutputPlanner` doesn't pick a free name up front. The converter writes a hidden temp file
+(`.photo.jpg.<token>.morph-tmp`) in the destination folder, and `commit` renames it with
+`renamex_np(…, RENAME_EXCL)`, trying `photo.jpg`, then `photo (1).jpg`, and so on. Checking and
+claiming a name is one atomic step, so `photo.png` and `photo.tiff` converted in the same batch get
+`photo.jpg` and `photo (1).jpg` rather than racing for one name. SPEC §4 names the temp file
+`.name.morph-tmp`; the random token is added so concurrent jobs never share one.
+
+### ImageIO routes come from a runtime probe
+
+`ImageIOConverter.routes` is computed from `CGImageSourceCopyTypeIdentifiers()` and
+`CGImageDestinationCopyTypeIdentifiers()` rather than written out, so a Mac without a HEIC encoder
+never offers HEIC (SPEC §14). The cost is that "advertised" and "available" routes are the same set
+for this converter. M1 covers JPEG, PNG, HEIC, TIFF and BMP in every direction, 20 routes; GIF,
+WebP and AVIF sources come in M5 with the bundled encoders.
+
+### Re-encode untouched when possible, decode only when needed
+
+A plain conversion uses `CGImageDestinationAddImageFromSource`, which carries every piece of
+metadata, the orientation flag included. Morph decodes to pixels only when it has to: resizing,
+stripping metadata, flattening transparency into JPEG, or writing BMP, which has no orientation
+field and so gets its pixels rotated upright. Stripping removes GPS, maker notes, camera and lens,
+and keeps the capture date.
+
+### `ConversionError.unknownFormat`, and `JobEvent.queued`
+
+Two small additions to the M0 types. A readable file in no known format isn't `unreadable`, and its
+message shouldn't suggest waiting for a download. And the Jobs list needs to learn about a job
+before it starts, so the queue announces each request as it's queued.
+
+### The drop zone ignores files it can't convert instead of disabling everything
+
+SPEC §9 disables chips that don't suit every dropped file. A stray `.DS_Store` or `notes.txt`
+would then disable every chip, so files of no known format are left out of the chip calculation and
+named in a "Skipping…" note instead. Recognised files still disable chips that don't suit them,
+with the reason in the tooltip. Dropping a folder adds the files directly inside it.
+
+### Converting clears the drop zone
+
+After a chip is clicked, the batch moves to the Jobs list and the drop zone empties, ready for the
+next drop. Converting the same files to a second format takes another drop, but the common case,
+one batch to one format, needs no *Clear* click.
+
+### The read-only prompt is asked once per batch
+
+When some dropped files sit in folders Morph can't write to, the writable ones start at once and a
+single dialog offers *Save to…* (one folder for all the blocked files) or *Skip*. The default
+"Save to…" behaviour in Settings (SPEC §9) arrives in M6.
+
+### Not in M1
+
+- The per-chip options popover (the gear in SPEC §9) arrives with Settings in M6; M1 uses the
+  defaults in `ImageOptions`.
+- Copying file dates and *Move original to Trash* are Settings options too (M6).
+- Removing temp files left by a crash at launch (SPEC §7): `OutputPlanner.removeStaleTemporaries`
+  exists, but the app doesn't yet record which folders to sweep.

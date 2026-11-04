@@ -9,6 +9,7 @@ struct ConversionErrorTests {
     private static let samples: [ConversionError] = [
         .unsupported(ConversionRoute(source: FormatCatalog.heic, target: FormatCatalog.mp4)),
         .unreadable(URL(fileURLWithPath: "/tmp/photo.heic"), reason: "not downloaded"),
+        .unknownFormat(URL(fileURLWithPath: "/tmp/notes.xyz")),
         .encoderUnavailable(FormatCatalog.avif),
         .diskFull(URL(fileURLWithPath: "/tmp/photo.jpg")),
         .destinationNotWritable(URL(fileURLWithPath: "/Library")),
