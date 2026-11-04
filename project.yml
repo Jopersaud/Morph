@@ -120,6 +120,9 @@ targets:
     settings:
       base:
         PRODUCT_NAME: morph
+        # The default module name, `morph`, collides with the app's `Morph`
+        # on a case-insensitive volume and hides it from MorphTests.
+        PRODUCT_MODULE_NAME: MorphCLI
         PRODUCT_BUNDLE_IDENTIFIER: $(MORPH_BUNDLE_ID_PREFIX).Morph.cli
         SKIP_INSTALL: YES
     dependencies:
@@ -150,6 +153,9 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: $(MORPH_BUNDLE_ID_PREFIX).MorphUITests
         TEST_TARGET_NAME: Morph
+        # Under ad-hoc signing there is no Team ID, so a hardened runner's
+        # library validation refuses to load the test bundle.
+        ENABLE_HARDENED_RUNTIME: NO
     dependencies:
       - target: Morph
 
